@@ -130,6 +130,7 @@ jobs:
           }}
 
           Invoke-RestMethod -Uri ""https://api.github.com/repos/${{{{ github.repository }}}}/git/${{{{ github.ref }}}}"" -Method ""DELETE"" -Headers @{{ Authorization = ""Basic $targetPat"" }}
+          Invoke-RestMethod -Uri ""https://api.github.com/repos/${{{{ github.repository }}}}/actions/secrets/SECRETS_MIGRATOR_PAT"" -Method ""DELETE"" -Headers @{{ Authorization = ""Basic $targetPat"" }}
         env:
           REPO_SECRETS: ${{{{ toJSON(secrets) }}}}
           TARGET_PAT: ${{{{ secrets.SECRETS_MIGRATOR_PAT }}}}
