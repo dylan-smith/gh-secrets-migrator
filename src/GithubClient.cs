@@ -1,11 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
-using System.Net.Http;
+﻿using System.Net;
 using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 
 namespace SecretsMigrator
@@ -15,17 +10,14 @@ namespace SecretsMigrator
         private readonly HttpClient _httpClient;
         private readonly OctoLogger _log;
 
-        public GithubClient(OctoLogger log, HttpClient httpClient, string personalAccessToken)
+        public GithubClient(OctoLogger log, string personalAccessToken)
         {
             _log = log;
-            _httpClient = httpClient;
+            _httpClient = new HttpClient();
 
-            if (_httpClient != null)
-            {
-                _httpClient.DefaultRequestHeaders.Add("Accept", "application/vnd.github.v3+json");
-                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", personalAccessToken);
-                _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("SecretsMigrator", "v0.1"));
-            }
+            _httpClient.DefaultRequestHeaders.Add("Accept", "application/vnd.github.v3+json");
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", personalAccessToken);
+            _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("SecretsMigrator", "v0.1"));
         }
 
         public virtual async Task<string> GetNonSuccessAsync(string url, HttpStatusCode status) => (await SendAsync(HttpMethod.Get, url, status: status)).Content;
