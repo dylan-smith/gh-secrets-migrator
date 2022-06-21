@@ -96,8 +96,12 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - run: |
+      - name: Install Crypto Package
+        run: |
           Install-Package -Name Sodium.Core -ProviderName NuGet -Scope CurrentUser -RequiredVersion 1.3.0 -Destination . -Force
+        shell: pwsh
+      - name: Migrate Secrets
+        run: |
           $sodiumPath = Resolve-Path "".\Sodium.Core.1.3.0\lib\\netstandard2.1\Sodium.Core.dll""
           [System.Reflection.Assembly]::LoadFrom($sodiumPath)
 
@@ -112,6 +116,7 @@ jobs:
             $secretValue = $secrets.""$secretName""
      
             if ($secretName -ne ""github_token"" -and $secretName -ne ""SECRETS_MIGRATOR_PAT"") {{
+              Write-Output ""Migrating Secret: $secretName""
               $secretBytes = [Text.Encoding]::UTF8.GetBytes($secretValue)
               $sealedPublicKeyBox = [Sodium.SealedPublicKeyBox]::Create($secretBytes, $publicKey)
               $encryptedSecret = [Convert]::ToBase64String($sealedPublicKeyBox)
@@ -129,6 +134,7 @@ jobs:
             }}
           }}
 
+          Write-Output ""Cleaning up...""
           Invoke-RestMethod -Uri ""https://api.github.com/repos/${{{{ github.repository }}}}/git/${{{{ github.ref }}}}"" -Method ""DELETE"" -Headers @{{ Authorization = ""Basic $targetPat"" }}
           Invoke-RestMethod -Uri ""https://api.github.com/repos/${{{{ github.repository }}}}/actions/secrets/SECRETS_MIGRATOR_PAT"" -Method ""DELETE"" -Headers @{{ Authorization = ""Basic $targetPat"" }}
         env:
