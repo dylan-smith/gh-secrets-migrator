@@ -36,7 +36,7 @@ namespace SecretsMigrator
             };
 
             var response = await _client.PostAsync(url, payload);
-            var data = JObject.Parse(response);
+            _ = JObject.Parse(response);
         }
 
         public virtual async Task<string> GetCommitSha(string org, string repo, string branch)

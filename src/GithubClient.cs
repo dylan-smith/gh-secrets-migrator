@@ -5,7 +5,7 @@ using Newtonsoft.Json.Linq;
 
 namespace SecretsMigrator
 {
-    public class GithubClient
+    public class GithubClient : IDisposable
     {
         private readonly HttpClient _httpClient;
         private readonly OctoLogger _log;
@@ -157,5 +157,10 @@ namespace SecretsMigrator
 
         private string ExtractHeaderValue(string key, IEnumerable<KeyValuePair<string, IEnumerable<string>>> headers) =>
             headers.SingleOrDefault(kvp => kvp.Key.Equals(key, StringComparison.OrdinalIgnoreCase)).Value?.FirstOrDefault();
+
+        public void Dispose()
+        {
+            throw new NotImplementedException();
+        }
     }
 }
