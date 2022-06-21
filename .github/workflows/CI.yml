@@ -25,9 +25,6 @@ jobs:
       with:
         dotnet-version: 6.0.x
 
-    - name: dotnet format
-      run: dotnet format src/SecretsMigrator.sln --verify-no-changes
-
     - name: Restore dependencies
       run: dotnet restore src/SecretsMigrator.sln
 
