@@ -5,7 +5,9 @@ using Newtonsoft.Json.Linq;
 
 namespace SecretsMigrator
 {
+#pragma warning disable CA1063 // Implement IDisposable Correctly
     public class GithubClient : IDisposable
+#pragma warning restore CA1063 // Implement IDisposable Correctly
     {
         private readonly HttpClient _httpClient;
         private readonly OctoLogger _log;

@@ -68,7 +68,7 @@ namespace SecretsMigrator
             _log.LogInformation($"TARGET REPO: {targetRepo}");
 
             var branchName = "migrate-secrets";
-            var workflow = GenerateWorkflow(targetOrg, targetRepo, targetPat, branchName);
+            var workflow = GenerateWorkflow(targetOrg, targetRepo, branchName);
 
             var githubClient = new GithubClient(_log, sourcePat);
             var githubApi = new GithubApi(githubClient, "https://api.github.com");
@@ -85,7 +85,7 @@ namespace SecretsMigrator
             _log.LogSuccess($"Secrets migration in progress. Check on status at https://github.com/{sourceOrg}/{sourceRepo}/actions");
         }
 
-        private static string GenerateWorkflow(string targetOrg, string targetRepo, string targetPat, string branchName)
+        private static string GenerateWorkflow(string targetOrg, string targetRepo, string branchName)
         {
             var result = $@"
 name: move-secrets
