@@ -29,7 +29,7 @@ jobs:
       run: dotnet restore src/SecretsMigrator.sln
 
     - name: Build
-      run: dotnet build src/SecretsMigrator.sln --no-restore /p:TreatWarningsAsErrors=true
+      run: dotnet build src/SecretsMigrator.sln --no-restore
 
   publish:
     runs-on: ubuntu-latest
