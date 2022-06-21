@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        runner-os: [windows-latest, ubuntu-latest, macos-latest]
+
+    runs-on: ${{ matrix.runner-os }}
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: 6.0.x
+
+    - name: dotnet format
+      run: dotnet format src/SecretsMigrator.sln --verify-no-changes
+
+    - name: Restore dependencies
+      run: dotnet restore src/SecretsMigrator.sln
+
+    - name: Build
+      run: dotnet build src/SecretsMigrator.sln --no-restore /p:TreatWarningsAsErrors=true
+
+  publish:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ build ]
+    environment: PUBLISH_RELEASE
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Validate tag on main
+      shell: pwsh
+      run: |
+        git checkout main
+        $mainsha = $(git show-ref refs/heads/main --hash)
+        $tagsha = $(git show-ref ${{ github.ref }} --hash)
+
+        Write-Output "refs/heads/main: $mainsha"
+        Write-Output "${{ github.ref }}: $tagsha"
+
+        if ($mainsha -ne $tagsha) {
+          Write-Error "tag must match HEAD of main"
+          exit 1
+        }
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: 6.0.x
+
+    - name: Build Artifacts
+      run: ./publish.ps1
+      shell: pwsh
+      env:
+        CLI_VERSION: ${{ github.ref }}
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        body_path: ./RELEASENOTES.md
+        files: |
+          ./dist/win-x64/secrets-migrator-windows-amd64.exe
+          ./dist/linux-x64/secrets-migrator-linux-amd64
+          ./dist/osx-x64/secrets-migrator-darwin-amd64
