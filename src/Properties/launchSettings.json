@@ -2,7 +2,7 @@
   "profiles": {
     "SecretsMigrator": {
       "commandName": "Project",
-      "commandLineArgs": "migrate-secrets --source-org dylan-smith --source-repo secrets-testing --target-org dylan-smith --target-repo secrets-target --source-pat \"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\" --target-pat \"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\""
+      "commandLineArgs": "migrate-secrets --source-org dylan-smith --source-repo secrets-testing --target-org dylan-smith --target-repo secrets-target --source-pat \"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\" --target-pat \"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\" --ignore-org-secrets"
     }
   }
 }
