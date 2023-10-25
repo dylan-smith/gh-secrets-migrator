@@ -250,5 +250,35 @@ namespace SecretsMigrator
 
             return (string)data["sha"];
         }
+
+        public virtual async Task<string> GetLatestRunBranchWorkflow(string org, string repo, string branch, string workflowId)
+        {
+            var url = $"{_apiUrl}/repos/{org}/{repo}/actions/workflows/{workflowId}/runs?branch={branch}";
+            var data = JObject.Parse(@"{""total_count"": 0}");
+
+            var retryCount = 0;
+            while (((int)data["total_count"]).Equals(0) && retryCount < 20)
+            {
+                await Task.Delay(1000); // start with delay for job to initialize
+                Console.WriteLine($"Retry: {retryCount}");
+                var response = await _client.GetAsync(url);
+                data = JObject.Parse(response);
+                retryCount++;
+            }
+
+            var runId = data["workflow_runs"].OrderByDescending(x => x["run_number"]).First()["id"];
+
+            return (string)runId;
+        }
+
+        public virtual async Task<(string status, string conclusion)> GetWorkflowRunStatus(string org, string repo, string runId)
+        {
+            var url = $"{_apiUrl}/repos/{org}/{repo}/actions/runs/{runId}";
+
+            var response = await _client.GetAsync(url);
+            var data = JObject.Parse(response);
+
+            return ((string)data["status"], (string)data["conclusion"]);
+        }
     }
 }

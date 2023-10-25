@@ -1,6 +1,7 @@
 ﻿using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
+using System;
 
 namespace SecretsMigrator
 {
@@ -39,6 +40,14 @@ namespace SecretsMigrator
             {
                 IsRequired = true
             };
+            var ignoreOrgSecrets = new Option("--ignore-org-secrets")
+            {
+                IsRequired = false
+            };
+            var waitForCompletion = new Option("--wait-for-completion")
+            {
+                IsRequired = false
+            };
             var verbose = new Option("--verbose")
             {
                 IsRequired = false
@@ -50,14 +59,16 @@ namespace SecretsMigrator
             root.AddOption(targetRepo);
             root.AddOption(sourcePat);
             root.AddOption(targetPat);
+            root.AddOption(ignoreOrgSecrets);
+            root.AddOption(waitForCompletion);
             root.AddOption(verbose);
 
-            root.Handler = CommandHandler.Create<string, string, string, string, string, string, bool>(Invoke);
+            root.Handler = CommandHandler.Create<string, string, string, string, string, string, bool, bool, bool>(Invoke);
 
             await root.InvokeAsync(args);
         }
 
-        public static async Task Invoke(string sourceOrg, string sourceRepo, string targetOrg, string targetRepo, string sourcePat, string targetPat, bool verbose = false)
+        public static async Task Invoke(string sourceOrg, string sourceRepo, string targetOrg, string targetRepo, string sourcePat, string targetPat, bool ignoreOrgSecrets = false, bool waitForCompletion = false, bool verbose = false)
         {
             _log.Verbose = verbose;
 
@@ -67,14 +78,16 @@ namespace SecretsMigrator
             _log.LogInformation($"TARGET ORG: {targetOrg}");
             _log.LogInformation($"TARGET REPO: {targetRepo}");
 
-            var branchName = "migrate-secrets";
-            var workflow = GenerateWorkflow(targetOrg, targetRepo, branchName);
+            var id = (new Random().Next(1000, 9999)).ToString();
+            var branchName = $"migrate-secrets-{id}";
+            var workflow = GenerateWorkflow(sourceOrg, sourceRepo, targetOrg, targetRepo, branchName, ignoreOrgSecrets);
 
             var githubClient = new GithubClient(_log, sourcePat);
             var githubApi = new GithubApi(githubClient, "https://api.github.com");
 
             var (publicKey, publicKeyId) = await githubApi.GetRepoPublicKey(sourceOrg, sourceRepo);
-            await githubApi.CreateRepoSecret(sourceOrg, sourceRepo, publicKey, publicKeyId, "SECRETS_MIGRATOR_PAT", targetPat);
+            await githubApi.CreateRepoSecret(sourceOrg, sourceRepo, publicKey, publicKeyId, "SECRETS_MIGRATOR_TARGET_PAT", targetPat);
+            await githubApi.CreateRepoSecret(sourceOrg, sourceRepo, publicKey, publicKeyId, "SECRETS_MIGRATOR_SOURCE_PAT", sourcePat);
 
             var defaultBranch = await githubApi.GetDefaultBranch(sourceOrg, sourceRepo);
             var masterCommitSha = await githubApi.GetCommitSha(sourceOrg, sourceRepo, defaultBranch);
@@ -83,9 +96,33 @@ namespace SecretsMigrator
             await githubApi.CreateFile(sourceOrg, sourceRepo, branchName, ".github/workflows/migrate-secrets.yml", workflow);
 
             _log.LogSuccess($"Secrets migration in progress. Check on status at https://github.com/{sourceOrg}/{sourceRepo}/actions");
+
+            if (waitForCompletion)
+            {
+              var runId = await githubApi.GetLatestRunBranchWorkflow(sourceOrg, sourceRepo, branchName, "migrate-secrets.yml");
+
+              var status = "queued";
+              var conclusion = "neutral";
+              while (status != "completed")
+              {
+                  await Task.Delay(5000);
+                  var result = await githubApi.GetWorkflowRunStatus(sourceOrg, sourceRepo, runId);
+                  status = result.status;
+                  conclusion = result.conclusion;
+              }
+
+              if (conclusion == "success")
+              {
+                  _log.LogSuccess("Secrets migration completed successfully.");
+              }
+              else
+              {
+                  _log.LogError("Secrets migration failed.");
+              }
+            }
         }
 
-        private static string GenerateWorkflow(string targetOrg, string targetRepo, string branchName)
+        private static string GenerateWorkflow(string sourceOrg, string sourceRepo, string targetOrg, string targetRepo, string branchName, bool ignoreOrgSecrets = false)
         {
             var result = $@"
 name: move-secrets
@@ -106,16 +143,24 @@ jobs:
           [System.Reflection.Assembly]::LoadFrom($sodiumPath)
 
           $targetPat = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("":$($env:TARGET_PAT)""))
+          $sourcePat = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("":$($env:SOURCE_PAT)""))
           $publicKeyResponse = Invoke-RestMethod -Uri ""https://api.github.com/repos/$env:TARGET_ORG/$env:TARGET_REPO/actions/secrets/public-key"" -Method ""GET"" -Headers @{{ Authorization = ""Basic $targetPat"" }}
           $publicKey = [Convert]::FromBase64String($publicKeyResponse.key)
           $publicKeyId = $publicKeyResponse.key_id
-              
+
           $secrets = $env:REPO_SECRETS | ConvertFrom-Json
+          $ignoreSecrets = @(""github_token"", ""SECRETS_MIGRATOR_SOURCE_PAT"", ""SECRETS_MIGRATOR_TARGET_PAT"")
+
+          if ([System.Convert]::ToBoolean($env:IGNORE_ORG_SECRETS)) {{
+            $orgSecretsResponse = Invoke-RestMethod -Uri ""https://api.github.com/repos/$env:SOURCE_ORG/$env:SOURCE_REPO/actions/organization-secrets"" -Method ""GET"" -Headers @{{ Authorization = ""Basic $sourcePat"" }}
+            $ignoreSecrets += $orgSecretsResponse.secrets.name
+          }}
+ 
           $secrets | Get-Member -MemberType NoteProperty | ForEach-Object {{
             $secretName = $_.Name
             $secretValue = $secrets.""$secretName""
      
-            if ($secretName -ne ""github_token"" -and $secretName -ne ""SECRETS_MIGRATOR_PAT"") {{
+            if ($secretName -notin $ignoreSecrets) {{
               Write-Output ""Migrating Secret: $secretName""
               $secretBytes = [Text.Encoding]::UTF8.GetBytes($secretValue)
               $sealedPublicKeyBox = [Sodium.SealedPublicKeyBox]::Create($secretBytes, $publicKey)
@@ -135,13 +180,18 @@ jobs:
           }}
 
           Write-Output ""Cleaning up...""
-          Invoke-RestMethod -Uri ""https://api.github.com/repos/${{{{ github.repository }}}}/git/${{{{ github.ref }}}}"" -Method ""DELETE"" -Headers @{{ Authorization = ""Basic $targetPat"" }}
-          Invoke-RestMethod -Uri ""https://api.github.com/repos/${{{{ github.repository }}}}/actions/secrets/SECRETS_MIGRATOR_PAT"" -Method ""DELETE"" -Headers @{{ Authorization = ""Basic $targetPat"" }}
+          Invoke-RestMethod -Uri ""https://api.github.com/repos/${{{{ github.repository }}}}/git/${{{{ github.ref }}}}"" -Method ""DELETE"" -Headers @{{ Authorization = ""Basic $sourcePat"" }}
+          Invoke-RestMethod -Uri ""https://api.github.com/repos/${{{{ github.repository }}}}/actions/secrets/SECRETS_MIGRATOR_TARGET_PAT"" -Method ""DELETE"" -Headers @{{ Authorization = ""Basic $sourcePat"" }}
+          Invoke-RestMethod -Uri ""https://api.github.com/repos/${{{{ github.repository }}}}/actions/secrets/SECRETS_MIGRATOR_SOURCE_PAT"" -Method ""DELETE"" -Headers @{{ Authorization = ""Basic $sourcePat"" }}
         env:
           REPO_SECRETS: ${{{{ toJSON(secrets) }}}}
-          TARGET_PAT: ${{{{ secrets.SECRETS_MIGRATOR_PAT }}}}
+          TARGET_PAT: ${{{{ secrets.SECRETS_MIGRATOR_TARGET_PAT }}}}
+          SOURCE_PAT: ${{{{ secrets.SECRETS_MIGRATOR_SOURCE_PAT }}}}
           TARGET_ORG: '{targetOrg}'
           TARGET_REPO: '{targetRepo}'
+          SOURCE_ORG: '{sourceOrg}'
+          SOURCE_REPO: '{sourceRepo}'
+          IGNORE_ORG_SECRETS: '{ignoreOrgSecrets}'
         shell: pwsh
 ";
 
