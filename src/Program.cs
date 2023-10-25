@@ -44,6 +44,10 @@ namespace SecretsMigrator
             {
                 IsRequired = false
             };
+            var waitForCompletion = new Option("--wait-for-completion")
+            {
+                IsRequired = false
+            };
             var verbose = new Option("--verbose")
             {
                 IsRequired = false
@@ -56,14 +60,15 @@ namespace SecretsMigrator
             root.AddOption(sourcePat);
             root.AddOption(targetPat);
             root.AddOption(ignoreOrgSecrets);
+            root.AddOption(waitForCompletion);
             root.AddOption(verbose);
 
-            root.Handler = CommandHandler.Create<string, string, string, string, string, string, bool, bool>(Invoke);
+            root.Handler = CommandHandler.Create<string, string, string, string, string, string, bool, bool, bool>(Invoke);
 
             await root.InvokeAsync(args);
         }
 
-        public static async Task Invoke(string sourceOrg, string sourceRepo, string targetOrg, string targetRepo, string sourcePat, string targetPat, bool ignoreOrgSecrets = false, bool verbose = false)
+        public static async Task Invoke(string sourceOrg, string sourceRepo, string targetOrg, string targetRepo, string sourcePat, string targetPat, bool ignoreOrgSecrets = false, bool waitForCompletion = false, bool verbose = false)
         {
             _log.Verbose = verbose;
 
@@ -91,6 +96,30 @@ namespace SecretsMigrator
             await githubApi.CreateFile(sourceOrg, sourceRepo, branchName, ".github/workflows/migrate-secrets.yml", workflow);
 
             _log.LogSuccess($"Secrets migration in progress. Check on status at https://github.com/{sourceOrg}/{sourceRepo}/actions");
+
+            if (waitForCompletion)
+            {
+              var runId = await githubApi.GetLatestRunBranchWorkflow(sourceOrg, sourceRepo, branchName, "migrate-secrets.yml");
+
+              var status = "queued";
+              var conclusion = "neutral";
+              while (status != "completed")
+              {
+                  await Task.Delay(5000);
+                  var result = await githubApi.GetWorkflowRunStatus(sourceOrg, sourceRepo, runId);
+                  status = result.status;
+                  conclusion = result.conclusion;
+              }
+
+              if (conclusion == "success")
+              {
+                  _log.LogSuccess("Secrets migration completed successfully.");
+              }
+              else
+              {
+                  _log.LogError("Secrets migration failed.");
+              }
+            }
         }
 
         private static string GenerateWorkflow(string sourceOrg, string sourceRepo, string targetOrg, string targetRepo, string branchName, bool ignoreOrgSecrets = false)
